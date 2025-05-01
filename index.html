@@ -11,7 +11,10 @@
   <script>
     window.MathJax = {
       tex: { inlineMath: [['\\(', '\\)']] },
-      svg: { fontCache: 'global' }
+      svg: { fontCache: 'global' },
+      options: {
+        enableMenu: false
+      }
     };
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
@@ -236,6 +239,43 @@
       border-radius: 4px;
     }
     
+    .subject-selector-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    
+    .subject-selector-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .subject-selector-container {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    
+    .json-import-container {
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    
+    .json-textarea {
+      width: 100%;
+      min-height: 200px;
+      font-family: monospace;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    
     @media print {
       @page {
         size: A4;
@@ -291,6 +331,15 @@
     
       .status-bar {
         display: none;
+      }
+    
+      /* Ensure MathJax elements are properly sized */
+      mjx-container[jax="SVG"] {
+        display: inline;
+      }
+      
+      mjx-container[jax="SVG"] > svg {
+        max-width: 100% !important;
       }
     
       @page {
@@ -365,6 +414,55 @@
       return (
         <div className="mt-1 bg-white border rounded px-2 py-1 text-sm text-gray-700">
           <span dangerouslySetInnerHTML={{ __html: `\\(${content}\\)` }} />
+        </div>
+      );
+    }
+
+    function JsonImport({ onImport }) {
+      const [jsonInput, setJsonInput] = useState("");
+      const [error, setError] = useState(null);
+
+      const handleImport = () => {
+        try {
+          const parsed = JSON.parse(jsonInput);
+          
+          // Handle both single question and array of questions
+          const questions = Array.isArray(parsed) ? parsed : [parsed];
+          
+          // Validate questions
+          const validQuestions = questions.filter(q => 
+            q.question && q.options && q.options.length > 0 && q.correctAnswer !== undefined
+          );
+          
+          if (validQuestions.length === 0) {
+            throw new Error("No valid questions found in the JSON");
+          }
+          
+          onImport(validQuestions);
+          setJsonInput("");
+          setError(null);
+        } catch (err) {
+          setError(`Error parsing JSON: ${err.message}`);
+        }
+      };
+
+      return (
+        <div className="json-import-container">
+          <h2 className="text-xl font-semibold mb-4 text-blue-600">Import Questions from JSON</h2>
+          <textarea
+            className="json-textarea"
+            value={jsonInput}
+            onChange={(e) => setJsonInput(e.target.value)}
+            placeholder={`Paste your JSON here, e.g.:\n\n{\n  "question": "What is 2+2?",\n  "options": ["3", "4", "5", "6"],\n  "correctAnswer": 1,\n  "explanation": "Basic addition",\n  "subject": "Math",\n  "difficulty": "easy"\n}\n\nOr an array of questions:\n\n[\n  { /* question 1 */ },\n  { /* question 2 */ }\n]`}
+          />
+          {error && <div className="text-red-600 mb-2">{error}</div>}
+          <button
+            onClick={handleImport}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            disabled={!jsonInput.trim()}
+          >
+            Import Questions
+          </button>
         </div>
       );
     }
@@ -612,13 +710,34 @@
         setSelectedQuestions(newSelected);
       };
 
+      const randomlySelectSubjectQuestions = (subject) => {
+        const subjectQuestions = filteredQuestions.filter(q => q.subject === subject);
+        if (subjectQuestions.length === 0) {
+          alert(`No ${subject} questions found!`);
+          return;
+        }
+        
+        const count = Math.max(1, Math.floor(subjectQuestions.length * 0.5));
+        const shuffled = [...Array(subjectQuestions.length).keys()].sort(() => 0.5 - Math.random());
+        const selectedIndices = shuffled.slice(0, count);
+        
+        const newSelected = new Set();
+        filteredQuestions.forEach((q, i) => {
+          if (q.subject === subject && selectedIndices.includes(subjectQuestions.indexOf(q))) {
+            newSelected.add(i);
+          }
+        });
+        
+        setSelectedQuestions(newSelected);
+        alert(`Randomly selected ${count} ${subject} questions`);
+      };
+
       const printSelected = () => {
         if (selectedQuestions.size === 0) {
           alert('Please select at least one question to print.');
           return;
         }
 
-        // Create print window
         const printWindow = window.open('', '', 'width=800,height=600');
         printWindow.document.write('<html><head><title>Print Questions</title>');
         printWindow.document.write('<style>');
@@ -663,12 +782,20 @@
             border-left: 3px solid #007bff;
             border-radius: 4px;
           }
+          mjx-container[jax="SVG"] {
+            display: inline;
+          }
+          mjx-container[jax="SVG"] > svg {
+            max-width: 100% !important;
+          }
           @page {
             size: A4;
             margin: 10mm;
           }
         `);
         printWindow.document.write('</style>');
+        printWindow.document.write('<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"><\/script>');
+        printWindow.document.write('<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"><\/script>');
         printWindow.document.write('</head><body>');
 
         // Add exam details
@@ -689,7 +816,8 @@
         printWindow.document.write('</div>');
 
         // Add selected questions
-        Array.from(selectedQuestions).sort((a, b) => a - b).forEach((index, i) => {
+        const selectedIndices = Array.from(selectedQuestions).sort((a, b) => a - b);
+        selectedIndices.forEach((index, i) => {
           const q = filteredQuestions[index];
           printWindow.document.write('<div class="question-block">');
           printWindow.document.write(`<div class="question-text"><span class="question-number">Q${i + 1}:</span> ${q.question}</div>`);
@@ -711,36 +839,37 @@
           printWindow.document.write('</div>');
         });
 
-        printWindow.document.write('<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"><\/script>');
         printWindow.document.write('</body></html>');
         printWindow.document.close();
         
         // Wait for MathJax to load and typeset before printing
-        printWindow.onload = function() {
-          printWindow.MathJax.typesetPromise().then(() => {
-            printWindow.print();
-          });
-        };
+        const checkMathJax = setInterval(() => {
+          if (printWindow.MathJax && printWindow.MathJax.typesetPromise) {
+            clearInterval(checkMathJax);
+            printWindow.MathJax.typesetPromise().then(() => {
+              // Add small delay to ensure rendering is complete
+              setTimeout(() => {
+                printWindow.print();
+              }, 500);
+            });
+          }
+        }, 100);
       };
 
       const applyFilters = () => {
         const filtered = questions.filter(q => {
-          // Search query filter
           if (searchQuery && !q.question.toLowerCase().includes(searchQuery.toLowerCase())) {
             return false;
           }
           
-          // Subject filter
           if (selectedSubjects.size > 0 && !selectedSubjects.has(q.subject)) {
             return false;
           }
           
-          // Difficulty filter
           if (selectedDifficulties.size > 0 && !selectedDifficulties.has(q.difficulty)) {
             return false;
           }
           
-          // Tag filter
           if (selectedTags.size > 0) {
             const questionTags = new Set(q.tags || []);
             const intersection = new Set([...selectedTags].filter(tag => questionTags.has(tag)));
@@ -847,6 +976,33 @@
                 rows="3"
               />
             </div>
+          </div>
+          
+          <div className="subject-selector-container mb-6">
+            <button
+              onClick={() => randomlySelectSubjectQuestions('Chemistry')}
+              className="subject-selector-btn bg-blue-100 text-blue-800 hover:bg-blue-200"
+            >
+              Random Chemistry (50%)
+            </button>
+            <button
+              onClick={() => randomlySelectSubjectQuestions('Physics')}
+              className="subject-selector-btn bg-green-100 text-green-800 hover:bg-green-200"
+            >
+              Random Physics (50%)
+            </button>
+            <button
+              onClick={() => randomlySelectSubjectQuestions('Biology')}
+              className="subject-selector-btn bg-purple-100 text-purple-800 hover:bg-purple-200"
+            >
+              Random Biology (50%)
+            </button>
+            <button
+              onClick={() => randomlySelectSubjectQuestions('Math')}
+              className="subject-selector-btn bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+            >
+              Random Math (50%)
+            </button>
           </div>
           
           <div className="search-filter-container mb-6">
@@ -1124,7 +1280,7 @@
       const [questions, setQuestions] = useState([]);
       const [subject, setSubject] = useState("Math");
       const [editIndex, setEditIndex] = useState(null);
-      const [activeTab, setActiveTab] = useState('generator'); // 'generator' or 'formatter'
+      const [activeTab, setActiveTab] = useState('generator');
 
       const addQuestion = (q) => {
         if (editIndex !== null) {
@@ -1135,6 +1291,10 @@
         } else {
           setQuestions([...questions, q]);
         }
+      };
+
+      const importQuestions = (newQuestions) => {
+        setQuestions([...questions, ...newQuestions]);
       };
 
       const removeQuestion = (index) => {
@@ -1165,6 +1325,7 @@
           
           {activeTab === 'generator' ? (
             <>
+              <JsonImport onImport={importQuestions} />
               <QuestionForm
                 onSave={addQuestion}
                 subject={subject}
